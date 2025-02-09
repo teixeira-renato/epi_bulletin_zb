@@ -1,2 +1,3 @@
-# epi_bulletin_zb
-epi_bulletin_zb
+# Epidemiological Bulletin
+
+A Rmarkdown was developed to create a report based on the original data sources.
