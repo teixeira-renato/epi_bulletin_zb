@@ -1,0 +1,500 @@
+---
+title: ""
+format:
+  docx: 
+    reference-doc: reference_be.docx
+---
+### **Week 34 Epidemiological Bulletin, 19th - 25th, Aug, 2024**  
+
+# Summary
+<br><br>
+```{r setup, include=FALSE}
+# Lista de pacotes necessários
+required_packages <- c("ggplot2", "sf", "tidyverse", "knitr", "kableExtra", 
+                       "readxl", "stringr", "gt", "lubridate", "gridExtra", 
+                       "grid", "patchwork","gridtext")
+
+# Identificar pacotes que não estão instalados
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+
+# Instalar pacotes ausentes
+if(length(missing_packages) > 0) {
+  install.packages(missing_packages, dependencies = TRUE)
+}
+
+# Carregar os pacotes
+invisible(lapply(required_packages, library, character.only = TRUE))
+
+setwd("/Users/renatoteixeira/Documents/RTSL/git/")
+
+
+
+```
+
+
+
+```{r load_data, include=FALSE}
+# Carregar os dados do boletim (ajuste o caminho conforme necessário)
+data_week <- read.csv("data/weekly_data_by_province.csv")
+measles_lab <- read_xlsx("data/measles_lab.xlsx")
+maternal_deaths_summary <- read_xlsx("data/Maternal deaths.xlsx",sheet =1)
+maternal_deaths_cod <- read_xlsx("data/Maternal deaths.xlsx",sheet =2)
+#shp_zb <- st_read("shapefiles/Zambia_-_Administrative_District_Boundaries_2022.shp")
+shp_zb_admin1 <- st_read("data/shapefiles/zmb_admbnda_adm1_dmmu_20201124.shp")
+```
+
+
+```{r summary_table, include=FALSE}
+# Cleaning data and new variables
+df_data_week <- data_week %>% 
+  pivot_longer(cols = c(-orgUnit_name,-period), names_to = "Disease", values_to = "Cases")
+
+df_data_week_2 <- df_data_week %>%
+  mutate(
+    texto_split = str_split(Disease, "\\.", n = 2), 
+    Disease_type = map_chr(texto_split, 1),  
+    Disease_condition = map_chr(texto_split, ~ ifelse(length(.) > 1, .[2], ""))
+  ) %>% 
+  select(-texto_split)
+
+df_data_week_2 <- df_data_week_2 %>%
+  mutate(week_n = as.integer(str_extract(period, "(?<=W).*")),
+         year = as.integer(str_extract(period, ".*(?=W)")))
+
+df_data_week_2 <- df_data_week_2 %>%
+  mutate(Disease_condition = Disease_condition %>%
+           str_to_lower() %>%          
+           str_replace_all("\\.", " "))
+
+df_data_week_2 <- df_data_week_2 %>%
+  mutate(Unit_name=substr(orgUnit_name,4,length(orgUnit_name)))
+
+df_data_week_2 <- df_data_week_2 %>%
+  mutate(Unit_name_cases=paste0(Unit_name," (",as.character(Cases),")"))
+
+max_week <- max(df_data_week_2$week_n)
+
+df_text_cases <- df_data_week_2 %>%
+  filter(week_n == max_week,
+         Cases>0)
+
+tb_total_diseases=df_text_cases %>% 
+  group_by(Disease_type,Disease_condition) %>% 
+  summarise(Cases_total=sum(Cases))
+
+
+df_text_cases <- merge(df_text_cases,
+                       tb_total_diseases,
+                       by=c("Disease_type","Disease_condition"),
+                       all.x=TRUE)
+
+
+# Agrupando os casos por doença e gerando texto formatado
+df_summary <- df_text_cases %>%
+  group_by(Disease_type,Disease_condition) %>%
+  summarise(
+    Cases_total = sum(Cases),
+    Provinces = paste(unique(Unit_name_cases), collapse = ", ")
+  ) %>%
+  mutate(
+    Text = paste0("• ", Disease_type, " : ", Cases_total, 
+                  " suspected cases were reported from ", Provinces, " provinces.")
+  )
+
+# Separando doenças de notificação imediata e outras
+immediate_diseases <- c("AFP", "Anthrax", "Cholera", "Measles")
+df_immediate <- df_summary %>% 
+  filter(Disease_type %in% immediate_diseases,
+         Disease_condition=="suspected")
+df_other <- df_summary %>% 
+  filter(!Disease_type %in% immediate_diseases,
+         str_detect(Disease_condition,"suspected")==T)
+
+```
+
+
+```{r summary_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+# Removendo qualquer espaço extra antes do título
+knitr::knit_hooks$set(document = function(x) gsub("^\\s+", "", x))
+
+# Texto formatado corretamente
+cat("**Immediately Notifiable Diseases and Events**\n\n")
+cat(paste(df_immediate$Text, collapse="\n\n"))
+
+cat("\n\n**Other Diseases and Events**\n\n")
+cat(paste(df_other$Text, collapse="\n\n"))
+```
+
+
+
+
+```{r summary_weeks, include=FALSE}
+
+df_all_weeks=df_data_week_2 %>% 
+  group_by(Disease_type,Disease_condition) %>% 
+  summarise(n_all_weeks=sum(Cases))
+
+df_all_week_max=df_data_week_2 %>%
+  filter(week_n == max_week) %>% 
+  group_by(Disease_type,Disease_condition) %>% 
+  summarise(n_week_max=sum(Cases))
+
+df_all_week_max <- merge(df_all_week_max,
+                         df_all_weeks,
+                         by=c("Disease_type","Disease_condition"),
+                         all.x=TRUE)
+
+df_all_week_max <- df_all_week_max %>% 
+  mutate(Disease_condition=gsub("fever ","",Disease_condition),
+         Disease_condition=gsub("non bloody ","",Disease_condition),
+         Disease_condition=gsub("suspecteded","suspected",Disease_condition),
+         Disease_condition = str_to_sentence(Disease_condition))
+
+df_summary <- df_all_week_max %>%
+  tidyr::pivot_wider(names_from = Disease_condition, values_from = c(n_week_max, n_all_weeks), values_fill = 0) %>%
+  rename(
+    `Disease/Event/Condition` = Disease_type,
+    `Suspected (Week 34)` = n_week_max_Suspected,
+    `Tested (Week 34)` = `n_week_max_Sent to lab`,
+    `Confirmed (Week 34)` = n_week_max_Confirmed,
+    `Suspected (Cumulative)` = n_all_weeks_Suspected,
+    `Tested (Cumulative)` = `n_all_weeks_Sent to lab`,
+    `Confirmed (Cumulative)` = n_all_weeks_Confirmed
+  )
+
+
+table_gt <- df_summary %>%
+  gt() %>%
+  
+  # Criar cabeçalhos agrupados para as semanas
+  tab_spanner(
+    label = "Week 34",
+    columns = c(`Suspected (Week 34)`, `Tested (Week 34)`, `Confirmed (Week 34)`)
+  ) %>%
+  tab_spanner(
+    label = "Week 1 to 34, Cumulative Total",
+    columns = c(`Suspected (Cumulative)`, `Tested (Cumulative)`, `Confirmed (Cumulative)`)
+  ) %>%
+  
+  # Renomear as colunas
+  cols_label(
+    `Disease/Event/Condition` = "Disease/Event/Condition",
+    `Suspected (Week 34)` = "Suspected",
+    `Tested (Week 34)` = "Tested",
+    `Confirmed (Week 34)` = "Confirmed",
+    `Suspected (Cumulative)` = "Suspected",
+    `Tested (Cumulative)` = "Tested",
+    `Confirmed (Cumulative)` = "Confirmed"
+  ) %>%
+  
+  # Formatar números com separador de milhar e sem decimais
+  fmt_number(
+    columns = c(`Suspected (Week 34)`, `Tested (Week 34)`, `Confirmed (Week 34)`,
+                `Suspected (Cumulative)`, `Tested (Cumulative)`, `Confirmed (Cumulative)`),
+    sep_mark = ",",
+    decimals = 0
+  ) %>%
+  
+  # Remover bordas da tabela
+  tab_options(
+    table.font.size = "medium",
+    heading.title.font.size = px(14),
+    column_labels.font.weight = "bold",
+    table.border.top.color = "white",
+    table.border.bottom.color = "white",
+    column_labels.border.top.color = "white",
+    column_labels.border.bottom.color = "white",
+    row_group.border.top.color = "white",
+    row_group.border.bottom.color = "white",
+    column_labels.border.top.width = px(0),
+    column_labels.border.bottom.width = px(0),
+    row_group.border.top.width = px(0),
+    row_group.border.bottom.width = px(0)
+  ) %>%
+  
+  # Colorir os cabeçalhos das colunas agrupadas (spanners)
+  tab_style(
+    style = list(
+      cell_fill(color = "orange"),
+      cell_text(color = "white", weight = "bold")
+    ),
+    locations = cells_column_spanners(everything())
+  ) %>%
+  
+  # Colorir os rótulos dos cabeçalhos das colunas
+  tab_style(
+    style = list(
+      cell_fill(color = "orange"),
+      cell_text(color = "white", weight = "bold")
+    ),
+    locations = cells_column_labels(everything()) # Aplica a todos os cabeçalhos de coluna
+  ) %>%
+  
+  # Colorir toda a primeira coluna (doença/evento)
+  tab_style(
+    style = list(
+      cell_fill(color = "orange"),
+      cell_text(color = "white", weight = "bold")
+    ),
+    locations = cells_body(columns = `Disease/Event/Condition`) # Aplica na primeira coluna
+  )
+
+# Exibir a tabela
+table_gt
+
+```
+
+# Summary Report Priority Diseases, Conditions and Events
+<br><br>
+```{r espace8, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+```
+
+```{r summary_table_all_weeks, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+table_gt
+```
+
+\newpage
+
+# Summary of VPD Surveillance Indicators
+<br><br>
+```{r espace4, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+```
+
+## Measles Laboratory Test Results by Province
+
+<br><br>
+```{r espace6, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+```
+
+```{r VPD, include=FALSE}
+
+measles_lab_pad <- measles_lab %>%
+  mutate(IgM_Results_Label = case_when(
+    `IgM Results` == 1 ~ "Positive",
+    `IgM Results` == 2 ~ "Negative",
+    `IgM Results` == 3 ~ "Indeterminate",
+    `IgM Results` == 4 ~ "Not done",
+    `IgM Results` == 5 ~ "Pending",
+    `IgM Results` == 9 ~ "Unknown",
+    TRUE ~ NA_character_  
+  ))
+
+
+## Cumulative measles cases
+measles_all_n <- df_summary %>% 
+  filter(`Disease/Event/Condition` == "Measles") %>%
+  select(`Suspected (Cumulative)`)
+
+measles_conditions <- measles_lab_pad %>%
+  group_by(IgM_Results_Label) %>%
+  summarise(n = n(), .groups = "drop") %>%  
+  mutate(IgM_Results_Label = as.character(IgM_Results_Label)) %>% 
+  add_row(IgM_Results_Label = "Total", n = sum(.$n))
+
+
+```
+
+```{r measles_summary_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+# Exibir a tabela no R Markdown
+n_measles <- c(measles_all_n[1])
+
+cat(paste0("• The country has recorded a total of ", n_measles, 
+           " suspected measles cases in 2024.\n\n"))  # Duplo "\n" para pular linha
+
+cat(paste0("• From the ", nrow(measles_lab_pad), 
+           " measles specimen that have been tested, ", 
+           measles_conditions$n[5],  
+           " have been confirmed positive (PR ",  
+           round(measles_conditions$n[5] / nrow(measles_lab_pad) * 100, 1), 
+           "%)\n\n"))  # Duplo "\n" para garantir espaçamento extra
+
+
+
+```
+
+
+```{r measles_chart, fig.width=3, fig.height=2, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+measles_lab_pad <- measles_lab_pad %>% 
+  mutate(province=str_to_title(`Province Of Residence`))
+
+grafico <- measles_lab_pad %>%
+  ggplot(aes(x = province, fill = IgM_Results_Label)) +
+  geom_bar() +
+  scale_fill_manual(values = c(
+    "Indeterminate" = "#7BA60B",
+    "Negative" = "#0000E1",
+    "Not done" = "#C6C6C6",
+    "Pending" = "#725088",
+    "Positive" = "#F50E00"
+  )) +
+  labs(
+    fill = NULL,
+    x = NULL,  # Remove rótulo do eixo X
+    y = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 6),  # Texto do eixo X
+    axis.text.y = element_text(size = 6),  # Texto do eixo Y
+    axis.title.x = element_text(size = 6),  # Título do eixo X
+    axis.title.y = element_text(size = 6),  # Título do eixo Y
+    legend.text = element_text(size = 6),  # Texto da legenda
+    legend.title = element_text(size = 6, face = "bold"),  # Título da legenda
+    panel.grid.major = element_line(linetype = "dotted"),
+    panel.grid.minor = element_line(linetype = "dotted"),
+    plot.margin = margin(10, 10, 10, 10) # Adiciona margem para manter centralizado
+  )
+
+grafico_grob <- ggplotGrob(grafico)
+
+# 🔹 Centralizar gráfico dentro da área disponível
+grid.arrange(grafico_grob, ncol = 1, widths = unit(1, "npc"))
+
+```
+
+
+
+<br><br>
+```{r espace1, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+```
+# Maternal Deaths
+
+
+```{r matewrnal_data, include=FALSE}
+maternal_deaths_week <- maternal_deaths_summary %>%
+  select(`Weekly Maternal Death`,...2,...5) %>% 
+  rename(PROVINCE=`Weekly Maternal Death`,
+         n_week=...2,
+         n_cumulative=...5) %>% 
+  mutate(PROVINCE= case_when(PROVINCE=="North Western"~"North-Western",
+                             T~PROVINCE)) %>% 
+  filter(PROVINCE!="Total") %>% 
+  arrange(desc(n_cumulative))
+
+
+
+maternal_deaths_cod <- maternal_deaths_cod %>%
+  mutate(cod_short_name = case_when(
+    str_to_lower(`Short Name`) %in% c("obstetric hemorrhage", "obstetric haemorrhage") ~ "Obstetric Hemorrhage",
+    str_to_lower(`Short Name`) %in% c("non-obstetric complications", "non-obstetric complication", "non-obstetric complications") ~ "Non-Obstetric Complications",
+    TRUE ~ `Short Name`  # Mantém os demais nomes sem alteração
+  ))
+
+tab_maternal_deaths_cod <- maternal_deaths_cod %>%
+  group_by(cod_short_name) %>%
+  summarise(n_death=n()) %>%
+  mutate(prop=paste0(round(n_death/sum(n_death)*100,1),"%")) %>% 
+  arrange(desc(n_death))
+
+```
+
+```{r maternal_figure2, fig.width=10, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
+
+# Criar a faixa do título (fundo verde)
+
+
+# Criar o gráfico de barras
+grafico_barras <- tab_maternal_deaths_cod %>%
+  ggplot(aes(x = reorder(cod_short_name, n_death), y = n_death)) +
+  geom_col(fill = "#78B6CB") +
+  geom_text(aes(label = paste0(prop, "%")), hjust = -0.2, size = 4) +
+  coord_flip() +
+  labs(
+    title = paste0("Causes of maternal death (Week ", max_week, ", n=", nrow(maternal_deaths_cod), " )"),
+    y = "# of maternal deaths",
+    x = "Cause of death"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0), # 🔹 Alinha o título à esquerda
+    plot.title.position = "plot", # 🔹 Garante alinhamento no layout do gráfico
+    axis.text.y = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line.x = element_line(color = "black"),
+    axis.line.y = element_line(color = "black")
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(tab_maternal_deaths_cod$n_death) + 1),
+    expand = expansion(mult = c(0, 0.05))
+  )
+
+
+# Criar o gráfico do mapa
+
+maternal_deaths_week[is.na(maternal_deaths_week)] <- 0
+
+map_data <- shp_zb_admin1 %>%
+  left_join(maternal_deaths_week, by = c("ADM1_EN" = "PROVINCE")) 
+
+
+grafico_mapa <- ggplot(map_data) +
+  geom_sf(aes(fill = n_cumulative), color = "black", size = 0.3) +
+  scale_fill_gradient(low = "white", high = "darkblue", name = "Cumulative maternal deaths") +
+  geom_sf_text(aes(label = paste0(ADM1_EN, " (", n_cumulative, ")")), size = 4, color = "black") +
+  labs(title = "Cumulative distribution of maternal deaths (2024) \n\nby province") +
+  theme_minimal() +
+  theme(
+    legend.position = c(0.05, 0.9),
+    legend.justification = c(0, 0.9),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = margin(5, 5, 5, 5)
+  )
+
+# Converter gráficos para `grob`
+grafico_barras_grob <- ggplotGrob(grafico_barras)
+grafico_mapa_grob <- ggplotGrob(grafico_mapa)
+
+# Criar os gráficos lado a lado
+graficos_combinados <- arrangeGrob(grafico_barras_grob, grafico_mapa_grob, ncol = 2)
+
+# 🔹 Combinar tudo no layout final
+grid.arrange(
+  grafico_barras_grob, grafico_mapa_grob,
+  ncol = 2  # Definir duas colunas para manter os gráficos lado a lado
+)
+
+
+
+```
+
+
+```{r maternal_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+
+
+cat(paste0("• ",
+           "The bar chart on the summarizes the causes of deaths of ", 
+           nrow(maternal_deaths_cod),
+           " maternal deaths recorded in week",
+           max_week),
+    ".\n\n")
+
+
+cat(paste0("• ",
+           tab_maternal_deaths_cod$cod_short_name[1], " ",
+           tab_maternal_deaths_cod$cod_short_name[2]," ",
+           tab_maternal_deaths_cod$cod_short_name[3]," ",
+           "are the leading causes of maternal deaths this week.\n\n")
+           )
+
+
+cat(paste0("• ",
+           "Cumulatively, in 2024,",
+           sum(maternal_deaths_week$n_cumulative),
+           " maternal deaths have been recorded across the country, as depicted on the map.\n\n"))
+
+
+cat(paste0("• ","Provinces with darker shades (",
+           maternal_deaths_week$PROVINCE[1], ", ",
+           maternal_deaths_week$PROVINCE[2], " and ",
+           maternal_deaths_week$PROVINCE[3],
+           ") indicate those with a higher number of reported maternal deaths.\n\n"))
+
+
+```
