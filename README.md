@@ -1,5 +1,3 @@
-# Epidemiological Bulletin
-
 # 🏥 Epidemiologic Bulletin Automation
 
 ## 📌 Overview
