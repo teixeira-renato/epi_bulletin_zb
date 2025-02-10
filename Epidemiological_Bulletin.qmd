@@ -9,22 +9,21 @@ format:
 # Summary
 <br><br>
 ```{r setup, include=FALSE}
-# Lista de pacotes necessários
+# Packages
 required_packages <- c("ggplot2", "sf", "tidyverse", "knitr", "kableExtra", 
                        "readxl", "stringr", "gt", "lubridate", "gridExtra", 
                        "grid", "patchwork","gridtext")
 
-# Identificar pacotes que não estão instalados
 missing_packages <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
 
-# Instalar pacotes ausentes
 if(length(missing_packages) > 0) {
   install.packages(missing_packages, dependencies = TRUE)
 }
 
-# Carregar os pacotes
 invisible(lapply(required_packages, library, character.only = TRUE))
 
+
+# Setting up the working directory
 setwd("/Users/renatoteixeira/Documents/RTSL/git/")
 
 
@@ -34,12 +33,11 @@ setwd("/Users/renatoteixeira/Documents/RTSL/git/")
 
 
 ```{r load_data, include=FALSE}
-# Carregar os dados do boletim (ajuste o caminho conforme necessário)
+# Loading data from the files
 data_week <- read.csv("data/weekly_data_by_province.csv")
 measles_lab <- read_xlsx("data/measles_lab.xlsx")
 maternal_deaths_summary <- read_xlsx("data/Maternal deaths.xlsx",sheet =1)
 maternal_deaths_cod <- read_xlsx("data/Maternal deaths.xlsx",sheet =2)
-#shp_zb <- st_read("shapefiles/Zambia_-_Administrative_District_Boundaries_2022.shp")
 shp_zb_admin1 <- st_read("data/shapefiles/zmb_admbnda_adm1_dmmu_20201124.shp")
 ```
 
@@ -89,7 +87,7 @@ df_text_cases <- merge(df_text_cases,
                        all.x=TRUE)
 
 
-# Agrupando os casos por doença e gerando texto formatado
+# SUmmary the suspecxted cases
 df_summary <- df_text_cases %>%
   group_by(Disease_type,Disease_condition) %>%
   summarise(
@@ -101,7 +99,7 @@ df_summary <- df_text_cases %>%
                   " suspected cases were reported from ", Provinces, " provinces.")
   )
 
-# Separando doenças de notificação imediata e outras
+# Immediate diseases and other diseases
 immediate_diseases <- c("AFP", "Anthrax", "Cholera", "Measles")
 df_immediate <- df_summary %>% 
   filter(Disease_type %in% immediate_diseases,
@@ -115,10 +113,10 @@ df_other <- df_summary %>%
 
 ```{r summary_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
 
-# Removendo qualquer espaço extra antes do título
+# Removing multi spaces
 knitr::knit_hooks$set(document = function(x) gsub("^\\s+", "", x))
 
-# Texto formatado corretamente
+# Formatting text
 cat("**Immediately Notifiable Diseases and Events**\n\n")
 cat(paste(df_immediate$Text, collapse="\n\n"))
 
@@ -131,6 +129,7 @@ cat(paste(df_other$Text, collapse="\n\n"))
 
 ```{r summary_weeks, include=FALSE}
 
+# Summary of all weeks
 df_all_weeks=df_data_week_2 %>% 
   group_by(Disease_type,Disease_condition) %>% 
   summarise(n_all_weeks=sum(Cases))
@@ -166,8 +165,6 @@ df_summary <- df_all_week_max %>%
 
 table_gt <- df_summary %>%
   gt() %>%
-  
-  # Criar cabeçalhos agrupados para as semanas
   tab_spanner(
     label = "Week 34",
     columns = c(`Suspected (Week 34)`, `Tested (Week 34)`, `Confirmed (Week 34)`)
@@ -176,8 +173,6 @@ table_gt <- df_summary %>%
     label = "Week 1 to 34, Cumulative Total",
     columns = c(`Suspected (Cumulative)`, `Tested (Cumulative)`, `Confirmed (Cumulative)`)
   ) %>%
-  
-  # Renomear as colunas
   cols_label(
     `Disease/Event/Condition` = "Disease/Event/Condition",
     `Suspected (Week 34)` = "Suspected",
@@ -187,8 +182,6 @@ table_gt <- df_summary %>%
     `Tested (Cumulative)` = "Tested",
     `Confirmed (Cumulative)` = "Confirmed"
   ) %>%
-  
-  # Formatar números com separador de milhar e sem decimais
   fmt_number(
     columns = c(`Suspected (Week 34)`, `Tested (Week 34)`, `Confirmed (Week 34)`,
                 `Suspected (Cumulative)`, `Tested (Cumulative)`, `Confirmed (Cumulative)`),
@@ -196,7 +189,7 @@ table_gt <- df_summary %>%
     decimals = 0
   ) %>%
   
-  # Remover bordas da tabela
+  # Removing bordes
   tab_options(
     table.font.size = "medium",
     heading.title.font.size = px(14),
@@ -213,7 +206,7 @@ table_gt <- df_summary %>%
     row_group.border.bottom.width = px(0)
   ) %>%
   
-  # Colorir os cabeçalhos das colunas agrupadas (spanners)
+  # Collor on the headers
   tab_style(
     style = list(
       cell_fill(color = "orange"),
@@ -222,7 +215,7 @@ table_gt <- df_summary %>%
     locations = cells_column_spanners(everything())
   ) %>%
   
-  # Colorir os rótulos dos cabeçalhos das colunas
+  # COllor headers columns
   tab_style(
     style = list(
       cell_fill(color = "orange"),
@@ -231,7 +224,7 @@ table_gt <- df_summary %>%
     locations = cells_column_labels(everything()) # Aplica a todos os cabeçalhos de coluna
   ) %>%
   
-  # Colorir toda a primeira coluna (doença/evento)
+  # COllor of first column
   tab_style(
     style = list(
       cell_fill(color = "orange"),
@@ -239,9 +232,6 @@ table_gt <- df_summary %>%
     ),
     locations = cells_body(columns = `Disease/Event/Condition`) # Aplica na primeira coluna
   )
-
-# Exibir a tabela
-table_gt
 
 ```
 
@@ -251,6 +241,7 @@ table_gt
 ```
 
 ```{r summary_table_all_weeks, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
+# Showing table on the report
 table_gt
 ```
 
@@ -268,7 +259,7 @@ table_gt
 ```
 
 ```{r VPD, include=FALSE}
-
+#Label on th IgM results
 measles_lab_pad <- measles_lab %>%
   mutate(IgM_Results_Label = case_when(
     `IgM Results` == 1 ~ "Positive",
@@ -296,7 +287,7 @@ measles_conditions <- measles_lab_pad %>%
 ```
 
 ```{r measles_summary_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-# Exibir a tabela no R Markdown
+# Automated comments of measles
 n_measles <- c(measles_all_n[1])
 
 cat(paste0("• The country has recorded a total of ", n_measles, 
@@ -315,7 +306,7 @@ cat(paste0("• From the ", nrow(measles_lab_pad),
 
 
 ```{r measles_chart, fig.width=3, fig.height=2, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-
+# Plotting the chart
 measles_lab_pad <- measles_lab_pad %>% 
   mutate(province=str_to_title(`Province Of Residence`))
 
@@ -336,20 +327,18 @@ grafico <- measles_lab_pad %>%
   ) +
   theme_minimal() +
   theme(
-    axis.text.x = element_text(angle = 90, hjust = 1, size = 6),  # Texto do eixo X
-    axis.text.y = element_text(size = 6),  # Texto do eixo Y
-    axis.title.x = element_text(size = 6),  # Título do eixo X
-    axis.title.y = element_text(size = 6),  # Título do eixo Y
-    legend.text = element_text(size = 6),  # Texto da legenda
-    legend.title = element_text(size = 6, face = "bold"),  # Título da legenda
+    axis.text.x = element_text(angle = 90, hjust = 1, size = 6),
+    axis.text.y = element_text(size = 6), 
+    axis.title.x = element_text(size = 6),
+    axis.title.y = element_text(size = 6),
+    legend.text = element_text(size = 6), 
+    legend.title = element_text(size = 6, face = "bold"),  
     panel.grid.major = element_line(linetype = "dotted"),
     panel.grid.minor = element_line(linetype = "dotted"),
-    plot.margin = margin(10, 10, 10, 10) # Adiciona margem para manter centralizado
+    plot.margin = margin(10, 10, 10, 10) 
   )
 
 grafico_grob <- ggplotGrob(grafico)
-
-# 🔹 Centralizar gráfico dentro da área disponível
 grid.arrange(grafico_grob, ncol = 1, widths = unit(1, "npc"))
 
 ```
@@ -364,6 +353,7 @@ grid.arrange(grafico_grob, ncol = 1, widths = unit(1, "npc"))
 
 
 ```{r matewrnal_data, include=FALSE}
+#Working on the maternal deaths data
 maternal_deaths_week <- maternal_deaths_summary %>%
   select(`Weekly Maternal Death`,...2,...5) %>% 
   rename(PROVINCE=`Weekly Maternal Death`,
@@ -375,12 +365,12 @@ maternal_deaths_week <- maternal_deaths_summary %>%
   arrange(desc(n_cumulative))
 
 
-
+#Working on the maternal deaths cod
 maternal_deaths_cod <- maternal_deaths_cod %>%
   mutate(cod_short_name = case_when(
     str_to_lower(`Short Name`) %in% c("obstetric hemorrhage", "obstetric haemorrhage") ~ "Obstetric Hemorrhage",
     str_to_lower(`Short Name`) %in% c("non-obstetric complications", "non-obstetric complication", "non-obstetric complications") ~ "Non-Obstetric Complications",
-    TRUE ~ `Short Name`  # Mantém os demais nomes sem alteração
+    TRUE ~ `Short Name`  
   ))
 
 tab_maternal_deaths_cod <- maternal_deaths_cod %>%
@@ -393,10 +383,7 @@ tab_maternal_deaths_cod <- maternal_deaths_cod %>%
 
 ```{r maternal_figure2, fig.width=10, fig.height=5, echo=FALSE, warning=FALSE, message=FALSE}
 
-# Criar a faixa do título (fundo verde)
-
-
-# Criar o gráfico de barras
+# Chart bars for COD
 grafico_barras <- tab_maternal_deaths_cod %>%
   ggplot(aes(x = reorder(cod_short_name, n_death), y = n_death)) +
   geom_col(fill = "#78B6CB") +
@@ -423,8 +410,7 @@ grafico_barras <- tab_maternal_deaths_cod %>%
   )
 
 
-# Criar o gráfico do mapa
-
+# Map of maternal deaths
 maternal_deaths_week[is.na(maternal_deaths_week)] <- 0
 
 map_data <- shp_zb_admin1 %>%
@@ -447,18 +433,15 @@ grafico_mapa <- ggplot(map_data) +
     plot.margin = margin(5, 5, 5, 5)
   )
 
-# Converter gráficos para `grob`
 grafico_barras_grob <- ggplotGrob(grafico_barras)
 grafico_mapa_grob <- ggplotGrob(grafico_mapa)
 
-# Criar os gráficos lado a lado
 graficos_combinados <- arrangeGrob(grafico_barras_grob, grafico_mapa_grob, ncol = 2)
 
-# 🔹 Combinar tudo no layout final
 grid.arrange(
   grafico_barras_grob, grafico_mapa_grob,
-  ncol = 2  # Definir duas colunas para manter os gráficos lado a lado
-)
+  ncol = 2
+  )
 
 
 
@@ -466,7 +449,7 @@ grid.arrange(
 
 
 ```{r maternal_text, echo=FALSE, message=FALSE, warning=FALSE, results='asis'}
-
+#Coments of maternal deaths
 
 cat(paste0("• ",
            "The bar chart on the summarizes the causes of deaths of ", 
